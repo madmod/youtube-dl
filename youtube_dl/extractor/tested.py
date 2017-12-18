@@ -4,6 +4,10 @@ from __future__ import unicode_literals
 import re
 
 from .common import InfoExtractor
+from ..compat import (
+    compat_parse_qs,
+    compat_urllib_parse_urlparse,
+)
 from ..utils import (
     ExtractorError,
     urlencode_postdata,
@@ -79,16 +83,28 @@ class TestedIE(InfoExtractor):
         else:
             raise ExtractorError('Missing metadata header')
 
-        video_key = self._html_search_regex(r'OO\.Player\.create\(\'container\', \'(.+?)\',', webpage, 'video_key')
-        playlist_url = "https://player.ooyala.com/player/all/%s.m3u8" % video_key
-        print playlist_url
-
-        return {
+        result = {
             'id': video_id,
             'title': video_info['object_title'],
             'description': self._og_search_description(webpage),
             'uploader': video_info['object_authors'][0],
-            'formats': self._extract_m3u8_formats(playlist_url, video_id)
             # TODO more properties (see youtube_dl/extractor/common.py)
         }
 
+        video_key = self._html_search_regex(r'OO\.Player\.create\(\'container\', \'(.+?)\',', webpage, 'video_key', default=None, fatal=False)
+
+        if video_key:
+          playlist_url = "https://player.ooyala.com/player/all/%s.m3u8" % video_key
+          result['formats'] = self._extract_m3u8_formats(playlist_url, video_id)
+        else:
+          # This is probably an old flash video.
+          embed_url = self._html_search_regex(r'src="/video-embed/?(.+?)"', webpage, 'embed_url', default=None)
+          embed_params = compat_parse_qs(compat_urllib_parse_urlparse(embed_url).query)
+          # Hack to convert the flash params to a parseable query string.
+          # TODO: Find out what format this is and use an actual parser.
+          flash_qs = embed_params['forFlash'][0].replace('|', '&').replace(':', '=').replace('http=', 'http:')
+          video_urls = compat_parse_qs(flash_qs)
+          # TODO: Extract all formats.
+          result['url'] = video_urls['1080'][0]
+
+        return result
